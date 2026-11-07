@@ -1,0 +1,94 @@
+-- ram_trim.script
+-- Logs Lua heap size around level transitions / loads and optionally runs a
+-- full GC pass at those points. Measurement first: check the log for
+-- "[ram_trim]" lines to see whether Lua heap is a meaningful share of the spike.
+--
+-- Settings come from MCM (ram_trim/*) when present; defaults apply otherwise.
+
+local TAG = "[ram_trim]"
+
+local function cfg_bool(key, default)
+	if ui_mcm and ui_mcm.get then
+		local v = ui_mcm.get("ram_trim/" .. key)
+		if v ~= nil then return v == true end
+	end
+	return default
+end
+
+local function cfg_num(key, default)
+	if ui_mcm and ui_mcm.get then
+		local v = tonumber(ui_mcm.get("ram_trim/" .. key))
+		if v then return v end
+	end
+	return default
+end
+
+local CHECK_MS = 5000 -- gameplay poll rate; settings are read at most this often
+local next_check = 0
+local next_trim = 0
+
+local function heap_mb()
+	return collectgarbage("count") / 1024
+end
+
+local function log(msg)
+	if cfg_bool("log", true) then
+		printf("%s %s", TAG, msg)
+	end
+end
+
+-- Records heap before/after an optional full collect.
+local function trim(where)
+	local before = heap_mb()
+	if cfg_bool("gc", true) then
+		collectgarbage("collect")
+		collectgarbage("collect") -- second pass frees objects released by finalizers
+		local after = heap_mb()
+		log(string.format("%s: lua heap %.1f MB -> %.1f MB (freed %.1f MB)", where, before, after, before - after))
+	else
+		log(string.format("%s: lua heap %.1f MB (gc disabled)", where, before))
+	end
+end
+
+local function on_before_level_changing()
+	trim("before_level_changing")
+end
+
+local function on_level_changing()
+	trim("level_changing")
+end
+
+local function actor_on_net_destroy()
+	trim("actor_net_destroy")
+end
+
+local function on_game_load()
+	trim("game_load")
+end
+
+local function actor_on_first_update()
+	-- Measure only: world is up, show the post-load baseline.
+	log(string.format("first_update: lua heap %.1f MB", heap_mb()))
+	next_check = 0
+	next_trim = time_global() + cfg_num("interval", 180) * 1000
+end
+
+-- Gameplay trim: cheap time gate first; settings read at most every CHECK_MS.
+local function actor_on_update()
+	local now = time_global()
+	if now < next_check then return end
+	next_check = now + CHECK_MS
+	if not cfg_bool("play", false) then return end
+	if now < next_trim then return end
+	next_trim = now + cfg_num("interval", 180) * 1000
+	trim("gameplay")
+end
+
+function on_game_start()
+	RegisterScriptCallback("on_before_level_changing", on_before_level_changing)
+	RegisterScriptCallback("on_level_changing", on_level_changing)
+	RegisterScriptCallback("actor_on_net_destroy", actor_on_net_destroy)
+	RegisterScriptCallback("on_game_load", on_game_load)
+	RegisterScriptCallback("actor_on_first_update", actor_on_first_update)
+	RegisterScriptCallback("actor_on_update", actor_on_update)
+end

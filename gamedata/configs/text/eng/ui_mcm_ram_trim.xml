@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<string_table>
+	<string id="ui_mcm_ram_trim_title">
+		<text>RAM Trim</text>
+	</string>
+	<string id="ui_mcm_ram_trim_gc">
+		<text>Run full GC at level changes and loads</text>
+	</string>
+	<string id="ui_mcm_ram_trim_gc_desc">
+		<text>Frees Lua heap garbage before the next level loads. Only affects Lua memory, not engine memory.</text>
+	</string>
+	<string id="ui_mcm_ram_trim_play">
+		<text>Also run GC periodically during gameplay</text>
+	</string>
+	<string id="ui_mcm_ram_trim_play_desc">
+		<text>A full GC can cause a brief hitch. Lower the frequency if you notice stutter.</text>
+	</string>
+	<string id="ui_mcm_ram_trim_interval">
+		<text>Gameplay GC interval (seconds)</text>
+	</string>
+	<string id="ui_mcm_ram_trim_log">
+		<text>Log Lua heap size to the game log</text>
+	</string>
+	<string id="ui_mcm_ram_trim_log_desc">
+		<text>Writes [ram_trim] lines to the log so you can see how much memory was freed.</text>
+	</string>
+</string_table>

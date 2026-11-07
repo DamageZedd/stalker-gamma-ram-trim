@@ -1,0 +1,16 @@
+-- ram_trim_mcm.script
+-- MCM page for ram_trim. Do not call ui_mcm.get() in on_mcm_load().
+
+function on_mcm_load()
+	return {
+		id = "ram_trim",
+		sh = true,
+		gr = {
+			{ id = "title", type = "slide", link = "ui_options_slider_player", text = "ui_mcm_ram_trim_title", size = { 512, 50 }, spacing = 20 },
+			{ id = "gc", type = "check", val = 1, def = true },
+			{ id = "play", type = "check", val = 1, def = false },
+			{ id = "interval", type = "track", val = 2, min = 60, max = 900, step = 30, def = 180 },
+			{ id = "log", type = "check", val = 1, def = true },
+		},
+	}
+end
