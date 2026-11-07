@@ -1,26 +1,24 @@
 -- ram_trim.script
--- Logs Lua heap size around level transitions / loads and optionally runs a
--- full GC pass at those points. Measurement first: check the log for
--- "[ram_trim]" lines to see whether Lua heap is a meaningful share of the spike.
---
+-- Lua-heap logging, GC passes and GC tuning around loads / gameplay, an
+-- on-demand heap report, and opt-in engine memory console toggles.
 -- Settings come from MCM (ram_trim/*) when present; defaults apply otherwise.
 
 local TAG = "[ram_trim]"
 
-local function cfg_bool(key, default)
+local function cfg(key, default)
 	if ui_mcm and ui_mcm.get then
 		local v = ui_mcm.get("ram_trim/" .. key)
-		if v ~= nil then return v == true end
+		if v ~= nil then return v end
 	end
 	return default
 end
 
+local function cfg_bool(key, default)
+	return cfg(key, default) == true
+end
+
 local function cfg_num(key, default)
-	if ui_mcm and ui_mcm.get then
-		local v = tonumber(ui_mcm.get("ram_trim/" .. key))
-		if v then return v end
-	end
-	return default
+	return tonumber(cfg(key, default)) or default
 end
 
 local CHECK_MS = 5000 -- gameplay poll rate; settings are read at most this often
@@ -50,8 +48,147 @@ local function trim(where)
 	end
 end
 
+---------------------------------------------------------------------------
+-- 1. GC tuning: lower pause = collect sooner, keeping heap closer to live size.
+---------------------------------------------------------------------------
+local LUA_DEFAULT_PAUSE, LUA_DEFAULT_STEPMUL = 200, 200
+local tuned = false
+
+local function apply_gc_tuning()
+	if cfg_bool("tune", true) then
+		local pause = cfg_num("pause", 150)
+		local stepmul = cfg_num("stepmul", 200)
+		local old_p = collectgarbage("setpause", pause)
+		local old_s = collectgarbage("setstepmul", stepmul)
+		tuned = true
+		log(string.format("gc tuning: pause %s -> %d, stepmul %s -> %d", tostring(old_p), pause, tostring(old_s), stepmul))
+	elseif tuned then
+		collectgarbage("setpause", LUA_DEFAULT_PAUSE)
+		collectgarbage("setstepmul", LUA_DEFAULT_STEPMUL)
+		tuned = false
+		log("gc tuning: restored Lua defaults")
+	end
+end
+
+---------------------------------------------------------------------------
+-- 2. Heap report: approximate size of each global/module table.
+-- Counts entries reachable from each _G table (depth- and budget-capped);
+-- a table shared between modules is counted once, for the first module
+-- in alphabetical order. Sizes are estimates, not exact bytes.
+---------------------------------------------------------------------------
+local REPORT_MAX_DEPTH = 8
+local REPORT_BUDGET = 3000000 -- total entries visited before giving up
+local REPORT_TOP = 15
+local ENTRY_BYTES = 40 -- rough per-entry cost (node + value)
+
+function heap_report(where)
+	local t0 = time_global and time_global() or 0
+	local seen = {}
+	seen[_G] = true
+	local budget = REPORT_BUDGET
+	local names = {}
+	for k, v in pairs(_G) do
+		if type(k) == "string" and type(v) == "table" then
+			names[#names + 1] = k
+		end
+	end
+	table.sort(names)
+
+	local results = {}
+	for i = 1, #names do
+		if budget <= 0 then break end
+		local root = rawget(_G, names[i])
+		if type(root) == "table" and not seen[root] then
+			local entries, str_bytes = 0, 0
+			local stack, depths = { root }, { 1 }
+			seen[root] = true
+			while #stack > 0 and budget > 0 do
+				local t = table.remove(stack)
+				local d = table.remove(depths)
+				for k, v in next, t do
+					entries = entries + 1
+					budget = budget - 1
+					if type(k) == "string" then str_bytes = str_bytes + #k end
+					local tv = type(v)
+					if tv == "string" then
+						str_bytes = str_bytes + #v
+					elseif tv == "table" and d < REPORT_MAX_DEPTH and not seen[v] then
+						seen[v] = true
+						stack[#stack + 1] = v
+						depths[#depths + 1] = d + 1
+					end
+					if budget <= 0 then break end
+				end
+			end
+			if entries > 0 then
+				results[#results + 1] = { name = names[i], entries = entries, kb = (entries * ENTRY_BYTES + str_bytes) / 1024 }
+			end
+		end
+	end
+
+	table.sort(results, function(a, b) return a.kb > b.kb end)
+	printf("%s heap report (%s): lua heap %.1f MB, %d tables scanned%s", TAG, where or "manual", heap_mb(), #results,
+		budget <= 0 and ", BUDGET HIT (partial)" or "")
+	for i = 1, math.min(REPORT_TOP, #results) do
+		local r = results[i]
+		printf("%s   %2d. %-40s ~%8.1f KB  (%d entries)", TAG, i, r.name, r.kb, r.entries)
+	end
+	if time_global then
+		printf("%s heap report took %d ms", TAG, time_global() - t0)
+	end
+	seen = nil
+end
+
+local function maybe_report(where)
+	if cfg_bool("report", false) then
+		heap_report(where)
+	end
+end
+
+---------------------------------------------------------------------------
+-- 3. Engine memory toggles via console. Ticking applies "on"; unticking
+-- reverts to "off" only if this mod turned it on during this session, so a
+-- value you set yourself is never overridden.
+---------------------------------------------------------------------------
+local ENGINE_TOGGLES = {
+	{ key = "eng_clear_models", cmd = "r__clear_models_on_unload" },
+	{ key = "eng_no_ram_tex", cmd = "r__no_ram_textures" },
+}
+local engine_set_by_us = {}
+
+local function console_exec(cmd)
+	local c = get_console and get_console()
+	if not c then
+		log("console unavailable, skipped: " .. cmd)
+		return false
+	end
+	c:execute(cmd)
+	return true
+end
+
+local function apply_engine_toggles()
+	for i = 1, #ENGINE_TOGGLES do
+		local t = ENGINE_TOGGLES[i]
+		if cfg_bool(t.key, false) then
+			if not engine_set_by_us[t.cmd] and console_exec(t.cmd .. " on") then
+				engine_set_by_us[t.cmd] = true
+				log("engine: " .. t.cmd .. " on")
+			end
+		elseif engine_set_by_us[t.cmd] then
+			if console_exec(t.cmd .. " off") then
+				engine_set_by_us[t.cmd] = nil
+				log("engine: " .. t.cmd .. " off (reverted)")
+			end
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- Callbacks
+---------------------------------------------------------------------------
 local function on_before_level_changing()
 	trim("before_level_changing")
+	maybe_report("before_level_changing")
 end
 
 local function on_level_changing()
@@ -67,8 +204,11 @@ local function on_game_load()
 end
 
 local function actor_on_first_update()
-	-- Measure only: world is up, show the post-load baseline.
+	-- World is up: show the post-load baseline and (re)apply settings.
 	log(string.format("first_update: lua heap %.1f MB", heap_mb()))
+	apply_gc_tuning()
+	apply_engine_toggles()
+	maybe_report("first_update")
 	next_check = 0
 	next_trim = time_global() + cfg_num("interval", 180) * 1000
 end
@@ -84,6 +224,11 @@ local function actor_on_update()
 	trim("gameplay")
 end
 
+local function on_option_change()
+	apply_gc_tuning()
+	apply_engine_toggles()
+end
+
 function on_game_start()
 	RegisterScriptCallback("on_before_level_changing", on_before_level_changing)
 	RegisterScriptCallback("on_level_changing", on_level_changing)
@@ -91,4 +236,7 @@ function on_game_start()
 	RegisterScriptCallback("on_game_load", on_game_load)
 	RegisterScriptCallback("actor_on_first_update", actor_on_first_update)
 	RegisterScriptCallback("actor_on_update", actor_on_update)
+	RegisterScriptCallback("on_option_change", on_option_change)
+	apply_gc_tuning()
+	apply_engine_toggles()
 end

@@ -7,9 +7,22 @@ function on_mcm_load()
 		sh = true,
 		gr = {
 			{ id = "title", type = "slide", link = "ui_options_slider_player", text = "ui_mcm_ram_trim_title", size = { 512, 50 }, spacing = 20 },
+			-- Lua GC passes
 			{ id = "gc", type = "check", val = 1, def = true },
 			{ id = "play", type = "check", val = 1, def = false },
 			{ id = "interval", type = "track", val = 2, min = 60, max = 900, step = 30, def = 180 },
+			{ id = "line1", type = "line" },
+			-- Lua GC tuning
+			{ id = "tune", type = "check", val = 1, def = true },
+			{ id = "pause", type = "track", val = 2, min = 100, max = 200, step = 10, def = 150 },
+			{ id = "stepmul", type = "track", val = 2, min = 100, max = 400, step = 50, def = 200 },
+			{ id = "line2", type = "line" },
+			-- Engine memory
+			{ id = "eng_clear_models", type = "check", val = 1, def = false },
+			{ id = "eng_no_ram_tex", type = "check", val = 1, def = false },
+			{ id = "line3", type = "line" },
+			-- Diagnostics
+			{ id = "report", type = "check", val = 1, def = false },
 			{ id = "log", type = "check", val = 1, def = true },
 		},
 	}

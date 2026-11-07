@@ -18,6 +18,42 @@
 	<string id="ui_mcm_ram_trim_interval">
 		<text>Gameplay GC interval (seconds)</text>
 	</string>
+	<string id="ui_mcm_ram_trim_tune">
+		<text>Tune Lua garbage collector</text>
+	</string>
+	<string id="ui_mcm_ram_trim_tune_desc">
+		<text>Makes the background collector start sooner so the Lua heap stays closer to its live size. Work is spread across frames, so no hitch. Unticking restores Lua defaults (200 / 200).</text>
+	</string>
+	<string id="ui_mcm_ram_trim_pause">
+		<text>GC pause (lower = less memory, more CPU)</text>
+	</string>
+	<string id="ui_mcm_ram_trim_pause_desc">
+		<text>How much the heap may grow before a new collection cycle starts. 200 = wait until it doubles (Lua default). 150 = start at 1.5x.</text>
+	</string>
+	<string id="ui_mcm_ram_trim_stepmul">
+		<text>GC step multiplier (higher = faster cycles)</text>
+	</string>
+	<string id="ui_mcm_ram_trim_stepmul_desc">
+		<text>How much work each incremental GC step does. Lua default is 200.</text>
+	</string>
+	<string id="ui_mcm_ram_trim_eng_clear_models">
+		<text>Engine: clear models on level unload</text>
+	</string>
+	<string id="ui_mcm_ram_trim_eng_clear_models_desc">
+		<text>Sets r__clear_models_on_unload on. Frees cached models at level change so RAM does not build up across transitions. Loads may be slightly longer. Unticking reverts it only if this mod turned it on this session.</text>
+	</string>
+	<string id="ui_mcm_ram_trim_eng_no_ram_tex">
+		<text>Engine: do not keep textures in RAM</text>
+	</string>
+	<string id="ui_mcm_ram_trim_eng_no_ram_tex_desc">
+		<text>Sets r__no_ram_textures on. Avoids keeping a system-RAM copy of textures already on the GPU. Biggest potential saving. Takes effect for textures loaded afterwards; restart the game for full effect. Unticking reverts it only if this mod turned it on this session.</text>
+	</string>
+	<string id="ui_mcm_ram_trim_report">
+		<text>Log heap report at load and level change</text>
+	</string>
+	<string id="ui_mcm_ram_trim_report_desc">
+		<text>Logs the largest Lua tables per script module, to find addons holding lots of memory. Estimates only. Can add a short delay to loads; turn off when done.</text>
+	</string>
 	<string id="ui_mcm_ram_trim_log">
 		<text>Log Lua heap size to the game log</text>
 	</string>
